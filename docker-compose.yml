@@ -10,15 +10,15 @@ x-healthcheck-defaults: &healthcheck_defaults
   # https://github.com/moby/moby/issues/39102
   # https://github.com/moby/moby/issues/39388
   # https://github.com/getsentry/self-hosted/issues/1000
-  interval: "$HEALTHCHECK_INTERVAL"
-  timeout: "$HEALTHCHECK_TIMEOUT"
-  retries: $HEALTHCHECK_RETRIES
+  interval: 999s
+  timeout: 999s
+  retries: 3
   start_period: 10s
 x-sentry-defaults: &sentry_defaults
   <<: *restart_policy
   image: sentry-self-hosted-local
   # Set the platform to build for linux/arm64 when needed on Apple silicon Macs.
-  platform: ${DOCKER_PLATFORM:-}
+  platform: linux/amd64
   build:
     context: ./sentry
     args:
@@ -73,7 +73,7 @@ x-snuba-defaults: &snuba_defaults
       <<: *depends_on-healthy
     redis:
       <<: *depends_on-healthy
-  image: "$SNUBA_IMAGE"
+  image: "getsentry/snuba"
   environment:
     SNUBA_SETTINGS: self_hosted
     CLICKHOUSE_HOST: clickhouse
@@ -89,14 +89,14 @@ services:
     <<: *restart_policy
     platform: linux/amd64
     image: tianon/exim4
-    hostname: "${SENTRY_MAIL_HOST:-}"
+    hostname: ""
     volumes:
       - "sentry-smtp:/var/spool/exim4"
       - "sentry-smtp-log:/var/log/exim4"
   memcached:
     <<: *restart_policy
     image: "memcached:1.6.26-alpine"
-    command: ["-I", "${SENTRY_MAX_EXTERNAL_SOURCEMAP_SIZE:-1M}"]
+    command: ["-I", "1M"]
     healthcheck:
       <<: *healthcheck_defaults
       # From: https://stackoverflow.com/a/31877626/5155484
@@ -125,12 +125,12 @@ services:
     healthcheck:
       <<: *healthcheck_defaults
       # Using default user "postgres" from sentry/sentry.conf.example.py or value of POSTGRES_USER if provided
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
     command:
       [
         "postgres",
         "-c",
-        "max_connections=${POSTGRES_MAX_CONNECTIONS:-100}",
+        "max_connections=100",
       ]
     environment:
       POSTGRES_HOST_AUTH_METHOD: "trust"
@@ -311,7 +311,7 @@ services:
       - feature-complete
   symbolicator:
     <<: *restart_policy
-    image: "$SYMBOLICATOR_IMAGE"
+    image: "getsentry/symbolicator"
     volumes:
       - "sentry-symbolicator:/data"
       - type: bind
@@ -325,7 +325,7 @@ services:
     build:
       context: ./cron
       args:
-        BASE_IMAGE: "$SYMBOLICATOR_IMAGE"
+        BASE_IMAGE: "getsentry/symbolicator"
     command: '"55 23 * * * gosu symbolicator symbolicator cleanup"'
     volumes:
       - "sentry-symbolicator:/data"
@@ -452,11 +452,11 @@ services:
       args:
         BASE_IMAGE: sentry-self-hosted-local
     entrypoint: "/entrypoint.sh"
-    command: '"0 0 * * * gosu sentry sentry cleanup --days $SENTRY_EVENT_RETENTION_DAYS"'
+    command: '"0 0 * * * gosu sentry sentry cleanup --days 90"'
   nginx:
     <<: *restart_policy
     ports:
-      - "$SENTRY_BIND:80/tcp"
+      - "9000:80/tcp"
     image: "nginx:1.25.4-alpine"
     volumes:
       - type: bind
@@ -470,7 +470,7 @@ services:
       - relay
   relay:
     <<: *restart_policy
-    image: "$RELAY_IMAGE"
+    image: "getsentry/relay"
     volumes:
       - type: bind
         read_only: true
@@ -489,7 +489,7 @@ services:
         <<: *depends_on-healthy
   vroom:
     <<: *restart_policy
-    image: "$VROOM_IMAGE"
+    image: "getsentry/vroom"
     environment:
       SENTRY_KAFKA_BROKERS_PROFILING: "kafka:9092"
       SENTRY_KAFKA_BROKERS_OCCURRENCES: "kafka:9092"
@@ -508,13 +508,13 @@ services:
     build:
       context: ./cron
       args:
-        BASE_IMAGE: "$VROOM_IMAGE"
+        BASE_IMAGE: "getsentry/vroom"
     entrypoint: "/entrypoint.sh"
     environment:
       # Leaving the value empty to just pass whatever is set
       # on the host system (or in the .env file)
       SENTRY_EVENT_RETENTION_DAYS:
-    command: '"0 0 * * * find /var/lib/sentry-profiles -type f -mtime +$SENTRY_EVENT_RETENTION_DAYS -delete"'
+    command: '"0 0 * * * find /var/lib/sentry-profiles -type f -mtime +90 -delete"'
     volumes:
       - sentry-vroom:/var/lib/sentry-profiles
     profiles:
